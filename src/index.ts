@@ -1,30 +1,36 @@
 import { Telegraf } from 'telegraf';
 import { config } from './config';
 import { TaishinClient } from './clients/taishin.client';
+import { BinanceClient } from './clients/binance.client';
 import { MonitorService } from './services/monitor.service';
 
 async function bootstrap() {
   const bot = new Telegraf(config.TELEGRAM_TOKEN);
   const taishin = new TaishinClient();
+  const binance = new BinanceClient();
 
   console.log('🚀 AI Trader is initializing...');
 
-  // 1. 台新 API 登入
-  const loginRes = await taishin.login();
-  if (!loginRes.success) {
-    console.error('❌ Failed to login to Taishin:', loginRes.error);
-    return;
-  }
+  // 1. 登入
+  await taishin.login();
 
   // 2. 初始化監控服務
   const monitor = new MonitorService(
     taishin,
+    binance,
     async (msg) => { await bot.telegram.sendMessage(process.env.ADMIN_CHAT_ID!, msg, { parse_mode: 'Markdown' }); },
-    async (symbol, price) => {
-      const orderRes = await taishin.placeOrder(symbol, 1000, price);
+    async (source, symbol, price) => {
+      let orderRes;
+      if (source === 'TW') {
+        orderRes = await taishin.placeOrder(symbol, 1000, price);
+      } else {
+        // 加密貨幣下單範例：買入 0.001 BTC
+        orderRes = await binance.placeOrder(symbol, 0.001);
+      }
+
       const msg = orderRes.success 
-        ? `🚨 **自動交易觸發**\n已下單: ${symbol} x 1000 @ ${price}`
-        : `❌ **交易失敗**\n原因: ${orderRes.error.message}`;
+        ? `🚨 **自動交易觸發 (${source})**\n已下單: ${symbol} @ ${price}`
+        : `❌ **交易失敗 (${source})**\n原因: ${orderRes.error.message}`;
       await bot.telegram.sendMessage(process.env.ADMIN_CHAT_ID!, msg, { parse_mode: 'Markdown' });
     }
   );
